@@ -1,6 +1,7 @@
 import time
 import socket
 import threading
+import queue
 
 # Porta solicitada pela professora
 PORT = 19000 
@@ -21,7 +22,7 @@ def read_neighbors():
                 if neighbor:
                     neighbors.append(neighbor)
     except Exception:
-        print(f"Erro na leitura do arquivo: {file}")
+        print(f"Error in file reading: {file}")
 
     return neighbors
 
@@ -44,21 +45,25 @@ class Router:
                 neighbor: time.time() 
                 for neighbor in self.neighbors
             }
-        
-        # Criando as threads para ficarem operando em paralelo a Main
-        threading.Thread(target=self.receive_message).start()
-        threading.Thread(target=self.periodic_route_announcement).start()
-        threading.Thread(target=self.check_neighbor_activity).start()
-        threading.Thread(target=self.display_routing_table).start()
-        # Thread para enviar mensagem
-        threading.Thread(target=self.user_input_thread).start()
-
 
         # Prints para DEBUG
+        print(f"===== INITIAL PRINT ABOUT ROUTER {time.time}=====")
         print(f"Ip router: {self.ip}") 
         print(f"Neighbors: {self.neighbors}")
         print(f"Routing Table: {self.routing_table}")
         print(f"Routing Last Activity: {self.router_last_activity}")
+
+        # Criando as threads para ficarem operando em paralelo a Main
+        threading.Thread(target=self.receive_message).start()
+        time.sleep(0.5)
+        threading.Thread(target=self.periodic_route_announcement).start()
+        time.sleep(0.5)
+        threading.Thread(target=self.check_neighbor_activity).start()
+        time.sleep(0.5)
+        threading.Thread(target=self.display_routing_table).start()
+        time.sleep(0.5)
+        # Thread para enviar mensagem
+        # threading.Thread(target=self.user_input_thread).start()
 
         self.router_advertisement()
 
@@ -69,6 +74,7 @@ class Router:
                     f"{entry['ip de saida']}:{entry['metrica']}" for entry in self.routing_table if entry['ip de destino'] != self.ip
                 )
             
+            print("\n===== MESSAGE SENDED TO OTHER NEIGHBORS =====")
             for neighbor in self.neighbors:
                 try:
                     self.socket.sendto(sent_message.encode(), (neighbor, PORT))
@@ -80,6 +86,7 @@ class Router:
     # Método para avisar outros roteadores que ele entrou em uma rede existente
     def router_advertisement(self):
         message_to_advertisement = f"@{self.ip}"
+        print("\n===== MESSAGE SENDED TO ADVERTISEMENT ENTER THE ROUTER =====")
         for neighbor in self.neighbors:
             try:
                 self.socket.sendto(message_to_advertisement.encode(), (neighbor, PORT))
@@ -101,7 +108,7 @@ class Router:
 
             self.router_last_activity[announced_ip] = time.time()
 
-            print(f"O Roteador: {announced_ip} entrou na rede.")
+            print(f"The router: {announced_ip} entered the network.")
 
             self.route_announcement_table()
 
@@ -131,7 +138,7 @@ class Router:
                         existing_route['metrica'] = metric
                         existing_route['ip de saida'] = ip_sended
                         
-                        print(f"Atualizada a rota EXISTENTE para o IP: {ip_dest} FEITA PELO IP: {ip_sended} com MÉTRICA: {metric}")
+                        print(f"UPDATE route for exisit IP: {ip_dest} MAKE BY IP: {ip_sended} WITH METRIC: {metric}.")
                 else:
                     updated = True
 
@@ -141,7 +148,7 @@ class Router:
                         'ip de saida': ip_sended
                     })
                     
-                    print(f"Adicionou uma NOVA rota para o IP: {ip_dest} FEITA PELO IP: {ip_sended} com MÉTRICA: {metric}")
+                    print(f"ADD a new route for IP: {ip_dest} MAKE BY IP: {ip_sended} WITH METRIC: {metric}")
             
         # Remove AS rotas que não foram recebidas por nenhum roteador
         routes_to_remove = []
@@ -152,7 +159,7 @@ class Router:
                 
                 routes_to_remove.append(route)
                 
-                print(f"Removeu a rota para IP DESTINO: {route['ip de destino']} FEITA PELO IP: {ip_sended}")
+                print(f"Removed route for IP DESTINATION: {route['ip de destino']} MAKE BY IP: {ip_sended}")
 
         for route in routes_to_remove:
             self.routing_table.remove(route)
@@ -176,7 +183,8 @@ class Router:
                     inactive_neighbors.append(neighbor)
 
             for neighbor in inactive_neighbors:
-                print(f"Vizinho NEIGHBOR: {neighbor} está inativo.")
+                print("\n===== NEIGHBOR REMOVED =====")
+                print(f"NEIGHBOR: {neighbor} is inactive.")
                 self.router_last_activity.pop(neighbor)
                 self.neighbors.remove(neighbor)
 
@@ -185,16 +193,16 @@ class Router:
 
                 for route in routes_to_remove:
                     self.routing_table.remove(route)
-                    print(f"Removeu rota para ROTEADOR: {route['ip de destino']} VIA: {neighbor}")
+                    print(f"Removed route for ROUTER: {route['ip de destino']} BY: {neighbor}")
 
                 self.route_announcement_table()
             time.sleep(5)
 
     def display_routing_table(self):
         while True:
-            print("\nTabela de Roteamento:")
+            print("\n===== ROUTER TABLE =====")
             for entry in self.routing_table:
-                print(f"Destino: {entry['ip de destino']}, Métrica: {entry['metrica']}, Saída: {entry['ip de saida']}")
+                print(f"Destination: {entry['ip de destino']}, Metric: {entry['metrica']}, Output: {entry['ip de saida']}")
             time.sleep(10)
 
     # PARTE RELACIONADA A MENSAGENS --------------------------------------------------------
@@ -215,11 +223,11 @@ class Router:
             try:
                 next_address = route['ip de saida']
                 self.socket.sendto(message.encode(), (next_address, PORT))
-                print(f"Enviando mensagem para {dest_ip} via {next_address}")
+                print(f"Send message to IP: {dest_ip} BY: {next_address}")
             except OSError as e:
                 print(f"(router_advertisement): Error to send message to NEIGHBOR: {next_address} ERROR: {e}")
         else:
-            print(f"Rota para {dest_ip} não encontrada.")
+            print(f"Route for IP: {dest_ip} not find.")
 
     def receive_message(self):
         while True:
@@ -242,26 +250,26 @@ class Router:
         ip_from_message = message[1:]
         parts = ip_from_message.split('%', 2)
         if len(parts) != 3:
-            print("Mensagem de texto mal formatada.")
+            print("Message wrong!")
             return
 
         source_ip, dest_ip, text = parts
 
         if dest_ip == self.ip:
-            print(f"A mensagem chegou ao destino. Mensagem de {source_ip} para {dest_ip}: {text}\n")
+            print(f"The message arrived at the destination. Message from IP: {source_ip} to IP: {dest_ip} | MESSAGE: {text}\n")
         else:
-            print("Encaminhando a mensagem para o próximo salto.")
+            print("Route the message to next router")
             route = next((entry for entry in self.routing_table if entry['ip de destino'] == dest_ip), None)
             
             if route:
                 try:
                     next_address = route['ip de saida']
                     self.socket.sendto(message.encode(), (next_address, PORT))
-                    print(f"Mensagem encaminhada para {dest_ip} via {next_address}")
+                    print(f"Message forwarded to IP: {dest_ip} BY {next_address}")
                 except OSError as e:
                     print(f"(router_advertisement): Error to send message to NEIGHBOR: {next_address} ERROR: {e}")
             else:
-                print(f"Não há rota para {dest_ip}.")
+                print(f"Don't exists routes from IP: {dest_ip}.")
 
 # Executa o roteador
 if __name__ == "__main__":
