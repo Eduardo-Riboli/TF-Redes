@@ -46,10 +46,13 @@ class Router:
             }
         
         # Criando as threads para ficarem operando em paralelo a Main
-        threading.Thread(target=self.receive_message, daemon=True).start()
-        threading.Thread(target=self.periodic_route_announcement, daemon=True).start()
-        threading.Thread(target=self.check_neighbor_activity, daemon=True).start()
-        threading.Thread(target=self.display_routing_table, daemon=True).start()
+        threading.Thread(target=self.receive_message).start()
+        threading.Thread(target=self.periodic_route_announcement).start()
+        threading.Thread(target=self.check_neighbor_activity).start()
+        threading.Thread(target=self.display_routing_table).start()
+        # Thread para enviar mensagem
+        threading.Thread(target=self.user_input_thread).start()
+
 
         # Prints para DEBUG
         print(f"Ip router: {self.ip}") 
@@ -61,39 +64,29 @@ class Router:
 
     # Método que envia sua tabela de roteamento para os vizinhos (a cada 15 segundos)
     def route_announcement_table(self):
-        if self.routing_table.count != 0:
+        if self.routing_table:
             sent_message = '!' + '!'.join(
                     f"{entry['ip de saida']}:{entry['metrica']}" for entry in self.routing_table if entry['ip de destino'] != self.ip
                 )
             
             for neighbor in self.neighbors:
-                self.socket.sendto(sent_message.encode(), (neighbor, PORT))
-                # Prints para DEBUG
-                print(f"Message sended to others neighbors: NEIGHBOR: {neighbor}, MESSAGE: {sent_message}")
+                try:
+                    self.socket.sendto(sent_message.encode(), (neighbor, PORT))
+                    # Prints para DEBUG
+                    print(f"Message sended to others neighbors: NEIGHBOR: {neighbor}, MESSAGE: {sent_message}")
+                except OSError as e:
+                    print(f"(route_announcement_table): Error to send message to NEIGHBOR: {neighbor} ERROR: {e}")
 
     # Método para avisar outros roteadores que ele entrou em uma rede existente
     def router_advertisement(self):
         message_to_advertisement = f"@{self.ip}"
         for neighbor in self.neighbors:
-            self.socket.sendto(message_to_advertisement.encode(), (neighbor, PORT))
-            # Prints para DEBUG
-            print(f"Router Advertisement to NEIGHBOR: {neighbor}: MESSAGE: {message_to_advertisement}")
-
-    # Método para ficar observando quando o usuário receber alguma mensagem
-    def receive_message(self):
-        while True:
-            data, addr = self.socket.recvfrom(1024)
-            ip_sended = addr[0]
-            message = data.decode()
-            self.router_last_activity[ip_sended] = time.time()
-
-            ip_from_message = message[1:]
-
-            if message.startswith('@'):
-                self.process_router_announcement(ip_from_message)
-            else:
-                if message.startswith('!'):
-                    self.process_routing_update(message, ip_sended)
+            try:
+                self.socket.sendto(message_to_advertisement.encode(), (neighbor, PORT))
+                # Prints para DEBUG
+                print(f"Router Advertisement to NEIGHBOR: {neighbor}: MESSAGE: {message_to_advertisement}")
+            except OSError as e:
+                    print(f"(router_advertisement): Error to send message to NEIGHBOR: {neighbor} ERROR: {e}")
 
     # Método para processar o anúncio de roteadores
     def process_router_announcement(self, announced_ip):
@@ -151,13 +144,18 @@ class Router:
                     print(f"Adicionou uma NOVA rota para o IP: {ip_dest} FEITA PELO IP: {ip_sended} com MÉTRICA: {metric}")
             
         # Remove AS rotas que não foram recebidas por nenhum roteador
+        routes_to_remove = []
+
         for route in self.routing_table:
             if route['ip de saida'] == ip_sended and route['ip de destino'] not in received_ips and route['ip de destino'] != ip_sended:
                 updated = True
                 
-                self.routing_table.remove(route)
+                routes_to_remove.append(route)
                 
                 print(f"Removeu a rota para IP DESTINO: {route['ip de destino']} FEITA PELO IP: {ip_sended}")
+
+        for route in routes_to_remove:
+            self.routing_table.remove(route)
 
         # Caso houve atualizações, envia sua tabela para os outros roteadores.
         if updated:
@@ -189,7 +187,7 @@ class Router:
                     self.routing_table.remove(route)
                     print(f"Removeu rota para ROTEADOR: {route['ip de destino']} VIA: {neighbor}")
 
-                self.send_routing_table()
+                self.route_announcement_table()
             time.sleep(5)
 
     def display_routing_table(self):
@@ -199,8 +197,77 @@ class Router:
                 print(f"Destino: {entry['ip de destino']}, Métrica: {entry['metrica']}, Saída: {entry['ip de saida']}")
             time.sleep(10)
 
+    # PARTE RELACIONADA A MENSAGENS --------------------------------------------------------
+
+    def user_input_thread(self):
+        while True:
+            dest_ip = input("Digite o IP de destino: ")
+            message_text = input("Digite a mensagem: ")
+            self.send_text_message(dest_ip, message_text)
+
+    def send_text_message(self, dest_ip, message_text):
+        message = f"&{self.ip}%{dest_ip}%{message_text}"
+        
+        # Encontrar o próximo salto na tabela de roteamento
+        route = next((entry for entry in self.routing_table if entry['ip de destino'] == dest_ip), None)
+        
+        if route:
+            try:
+                next_address = route['ip de saida']
+                self.socket.sendto(message.encode(), (next_address, PORT))
+                print(f"Enviando mensagem para {dest_ip} via {next_address}")
+            except OSError as e:
+                print(f"(router_advertisement): Error to send message to NEIGHBOR: {next_address} ERROR: {e}")
+        else:
+            print(f"Rota para {dest_ip} não encontrada.")
+
+    def receive_message(self):
+        while True:
+            data, addr = self.socket.recvfrom(1024)
+            ip_sended = addr[0]
+            message = data.decode()
+            self.router_last_activity[ip_sended] = time.time()
+
+            ip_from_message = message[1:]
+
+            if message.startswith('@'):
+                ip_from_message = ip_from_message
+                self.process_router_announcement(ip_from_message)
+            elif message.startswith('!'):
+                self.process_routing_update(message, ip_sended)
+            elif message.startswith('&'):
+                self.process_text_message(message, ip_sended)
+
+    def process_text_message(self, message, ip_sended):
+        ip_from_message = message[1:]
+        parts = ip_from_message.split('%', 2)
+        if len(parts) != 3:
+            print("Mensagem de texto mal formatada.")
+            return
+
+        source_ip, dest_ip, text = parts
+
+        if dest_ip == self.ip:
+            print(f"A mensagem chegou ao destino. Mensagem de {source_ip} para {dest_ip}: {text}\n")
+        else:
+            print("Encaminhando a mensagem para o próximo salto.")
+            route = next((entry for entry in self.routing_table if entry['ip de destino'] == dest_ip), None)
+            
+            if route:
+                try:
+                    next_address = route['ip de saida']
+                    self.socket.sendto(message.encode(), (next_address, PORT))
+                    print(f"Mensagem encaminhada para {dest_ip} via {next_address}")
+                except OSError as e:
+                    print(f"(router_advertisement): Error to send message to NEIGHBOR: {next_address} ERROR: {e}")
+            else:
+                print(f"Não há rota para {dest_ip}.")
+
 # Executa o roteador
 if __name__ == "__main__":
-    ip_roteador = "127.0.0.1"  
+    ip_roteador = "192.168.15.83"  
     roteador = Router(ip_roteador)
+    # Loop para manter a main sempre rodando
+    while True:
+        time.sleep(1)
     
