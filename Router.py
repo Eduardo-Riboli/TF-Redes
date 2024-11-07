@@ -178,56 +178,59 @@ class Router:
                 
     def periodic_route_announcement(self):
         global MUTEX
-        while MUTEX:
-            self.route_announcement_table()
-            time.sleep(TIMEOUT_ANNOUNCEMENT)
+        while True:
+            if(MUTEX):    
+                self.route_announcement_table()
+                time.sleep(TIMEOUT_ANNOUNCEMENT)
 
     def check_neighbor_activity(self):
         global MUTEX
-        while MUTEX:
-            current_time = time.time()
-            inactive_neighbors = []
+        while True:
+            if(MUTEX):
+                current_time = time.time()
+                inactive_neighbors = []
 
-            for neighbor, last_activity in self.router_last_activity.items():
-                if current_time - last_activity > TIMEOUT_NEIGHBORS:
-                    inactive_neighbors.append(neighbor)
+                for neighbor, last_activity in self.router_last_activity.items():
+                    if current_time - last_activity > TIMEOUT_NEIGHBORS:
+                        inactive_neighbors.append(neighbor)
 
-            for neighbor in inactive_neighbors:
-                print("\n===== NEIGHBOR REMOVED =====")
-                print(f"NEIGHBOR: {neighbor} is inactive.")
-                self.router_last_activity.pop(neighbor)
-                self.neighbors.remove(neighbor)
+                for neighbor in inactive_neighbors:
+                    print("\n===== NEIGHBOR REMOVED =====")
+                    print(f"NEIGHBOR: {neighbor} is inactive.")
+                    self.router_last_activity.pop(neighbor)
+                    self.neighbors.remove(neighbor)
 
-                # Remove rotas associadas ao vizinho
-                routes_to_remove = [route for route in self.routing_table if route['ip de saida'] == neighbor]
+                    # Remove rotas associadas ao vizinho
+                    routes_to_remove = [route for route in self.routing_table if route['ip de saida'] == neighbor]
 
-                for route in routes_to_remove:
-                    self.routing_table.remove(route)
-                    print(f"Removed route for ROUTER: {route['ip de destino']} BY: {neighbor}")
+                    for route in routes_to_remove:
+                        self.routing_table.remove(route)
+                        print(f"Removed route for ROUTER: {route['ip de destino']} BY: {neighbor}")
 
-                self.route_announcement_table()
-            time.sleep(5)
+                    self.route_announcement_table()
+                time.sleep(5)
 
     def display_routing_table(self):
         global MUTEX
-        while MUTEX:
-            print("\n===== ROUTER TABLE =====")
-            for entry in self.routing_table:
-                print(f"Destination: {entry['ip de destino']}, Metric: {entry['metrica']}, Output: {entry['ip de saida']}")
-            time.sleep(10)
+        while True:
+            if(MUTEX):
+                print("\n===== ROUTER TABLE =====")
+                for entry in self.routing_table:
+                    print(f"Destination: {entry['ip de destino']}, Metric: {entry['metrica']}, Output: {entry['ip de saida']}")
+                time.sleep(10)
 
     # PARTE RELACIONADA A MENSAGENS --------------------------------------------------------
     def user_input_thread(self):
         global MUTEX
         while True:
-            while MUTEX:
+            if(MUTEX):
                 print("\n===== TO SEND A MESSAGE, TYPE ANYTHING =====")
                 user_input = input()
 
                 if(user_input):
                     MUTEX = False
 
-            while not MUTEX:
+            if(not MUTEX):
                 dest_ip = input("Digite o IP de destino: ")
                 message_text = input("Digite a mensagem: ")
                 self.send_text_message(dest_ip, message_text)
@@ -251,21 +254,22 @@ class Router:
 
     def receive_message(self):
         global MUTEX
-        while MUTEX:
-            data, addr = self.socket.recvfrom(1024)
-            ip_sended = addr[0]
-            message = data.decode()
-            self.router_last_activity[ip_sended] = time.time()
+        while True:
+            if(MUTEX):
+                data, addr = self.socket.recvfrom(1024)
+                ip_sended = addr[0]
+                message = data.decode()
+                self.router_last_activity[ip_sended] = time.time()
 
-            ip_from_message = message[1:]
+                ip_from_message = message[1:]
 
-            if message.startswith('@'):
-                ip_from_message = ip_from_message
-                self.process_router_announcement(ip_from_message)
-            elif message.startswith('!'):
-                self.process_routing_update(message, ip_sended)
-            elif message.startswith('&'):
-                self.process_text_message(message, ip_sended)
+                if message.startswith('@'):
+                    ip_from_message = ip_from_message
+                    self.process_router_announcement(ip_from_message)
+                elif message.startswith('!'):
+                    self.process_routing_update(message, ip_sended)
+                elif message.startswith('&'):
+                    self.process_text_message(message, ip_sended)
 
     def process_text_message(self, message, ip_sended):
         ip_from_message = message[1:]
@@ -294,7 +298,7 @@ class Router:
 
 # Executa o roteador
 if __name__ == "__main__":
-    ip_roteador = "192.168.15.83"  
+    ip_roteador = "172.20.10.2"  
     roteador = Router(ip_roteador)
     # Loop para manter a main sempre rodando
     while True:
