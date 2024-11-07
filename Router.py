@@ -9,6 +9,9 @@ PORT = 19000
 TIMEOUT_ANNOUNCEMENT = 15  
 # Tempo para considerar que o vizinho saiu da rede
 TIMEOUT_NEIGHBORS = 35  
+# Mutex para interromper os logs durante input do usuário
+MUTEX = True
+
 
 # Função para ler os vizinhos a partir de um arquivo
 def read_neighbors():
@@ -29,6 +32,8 @@ def read_neighbors():
 # Classe que representa um roteador com seus atributos e sua tabela de roteamento
 class Router:
     def __init__(self, ip):
+        global MUTEX
+
         self.ip = ip
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -63,7 +68,10 @@ class Router:
         threading.Thread(target=self.display_routing_table).start()
         time.sleep(0.5)
         # Thread para enviar mensagem
-        # threading.Thread(target=self.user_input_thread).start()
+        threading.Thread(target=self.user_input_thread).start()
+
+        while not MUTEX:
+            pass
 
         self.router_advertisement()
 
@@ -169,12 +177,14 @@ class Router:
             self.route_announcement_table()
                 
     def periodic_route_announcement(self):
-        while True:
+        global MUTEX
+        while MUTEX:
             self.route_announcement_table()
             time.sleep(TIMEOUT_ANNOUNCEMENT)
 
     def check_neighbor_activity(self):
-        while True:
+        global MUTEX
+        while MUTEX:
             current_time = time.time()
             inactive_neighbors = []
 
@@ -199,19 +209,29 @@ class Router:
             time.sleep(5)
 
     def display_routing_table(self):
-        while True:
+        global MUTEX
+        while MUTEX:
             print("\n===== ROUTER TABLE =====")
             for entry in self.routing_table:
                 print(f"Destination: {entry['ip de destino']}, Metric: {entry['metrica']}, Output: {entry['ip de saida']}")
             time.sleep(10)
 
     # PARTE RELACIONADA A MENSAGENS --------------------------------------------------------
-
     def user_input_thread(self):
+        global MUTEX
         while True:
-            dest_ip = input("Digite o IP de destino: ")
-            message_text = input("Digite a mensagem: ")
-            self.send_text_message(dest_ip, message_text)
+            while MUTEX:
+                print("\n===== TO SEND A MESSAGE, TYPE ANYTHING =====")
+                user_input = input()
+
+                if(user_input):
+                    MUTEX = False
+
+            while not MUTEX:
+                dest_ip = input("Digite o IP de destino: ")
+                message_text = input("Digite a mensagem: ")
+                self.send_text_message(dest_ip, message_text)
+                MUTEX = True
 
     def send_text_message(self, dest_ip, message_text):
         message = f"&{self.ip}%{dest_ip}%{message_text}"
@@ -227,10 +247,11 @@ class Router:
             except OSError as e:
                 print(f"(router_advertisement): Error to send message to NEIGHBOR: {next_address} ERROR: {e}")
         else:
-            print(f"Route for IP: {dest_ip} not find.")
+            print(f"Route for IP: {dest_ip} not found.")
 
     def receive_message(self):
-        while True:
+        global MUTEX
+        while MUTEX:
             data, addr = self.socket.recvfrom(1024)
             ip_sended = addr[0]
             message = data.decode()
